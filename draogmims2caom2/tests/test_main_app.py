@@ -66,7 +66,6 @@
 #
 # ***********************************************************************
 #
-import pytest
 
 from draogmims2caom2 import main_app, APPLICATION, COLLECTION
 from caom2.diff import get_differences
@@ -80,23 +79,24 @@ from mock import patch
 
 THIS_DIR = os.path.dirname(os.path.realpath(__file__))
 TESTDATA_DIR = os.path.join(THIS_DIR, 'data')
-PLUGIN = os.path.join(os.path.dirname(THIS_DIR), '{}.py'.format(APPLICATION))
+PLUGIN = os.path.join(os.path.dirname(THIS_DIR), 'main_app.py')
 
 
-# def pytest_generate_tests(metafunc):
-#     if os.path.exists(TESTDATA_DIR):
-#         files = [os.path.join(TESTDATA_DIR, name) for name in
-#                  os.listdir(TESTDATA_DIR) if name.endswith('header')]
-#         metafunc.parametrize('test_name', files)
+def pytest_generate_tests(metafunc):
+    if os.path.exists(TESTDATA_DIR):
+        files = [os.path.join(TESTDATA_DIR, name) for name in
+                 os.listdir(TESTDATA_DIR) if name.endswith('header')]
+        # files = []
+        metafunc.parametrize('test_name', files)
 
 
-@pytest.mark.parametrize('test_name', [])
 def test_main_app(test_name):
     basename = os.path.basename(test_name)
     product_id = basename.split('.fits')[0]
-    lineage = _get_lineage(product_id, basename)
+    lineage = mc.get_lineage(
+        COLLECTION, product_id, basename.replace('.header', ''))
     output_file = '{}.actual.xml'.format(test_name)
-    local = _get_local(test_name)
+    local = test_name
     plugin = PLUGIN
 
     with patch('caom2utils.fits2caom2.CadcDataClient') as data_client_mock:
@@ -129,13 +129,3 @@ def test_main_app(test_name):
                 [r for r in result]))
             raise AssertionError(msg)
         # assert False  # cause I want to see logging messages
-
-
-def _get_local(test_name):
-    prev_name = test_name.replace('.fits.header', '_prev.jpg')
-    prev_256_name = test_name.replace('.fits.header', '_prev_256.jpg')
-    return '{} {} {}'.format(test_name, prev_name, prev_256_name)
-
-
-def _get_lineage(product_id, basename):
-    return '{}/ad:{}/{}.fits.gz'.format(COLLECTION, product_id, product_id)

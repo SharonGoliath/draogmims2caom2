@@ -82,7 +82,8 @@ from caom2pipe import manage_composable as mc
 from caom2pipe import execute_composable as ec
 
 
-__all__ = ['main_app', 'update', 'GMIMSName', 'COLLECTION', 'APPLICATION']
+__all__ = ['main_app', 'update', 'GMIMSName', 'COLLECTION', 'APPLICATION',
+           'build_a_plane_position']
 
 
 APPLICATION = 'draogmims2caom2'
@@ -112,7 +113,9 @@ class GMIMSName(ec.StorageName):
         #         'names.'.format(obs_id))
 
         super(GMIMSName, self).__init__(
-            obs_id, COLLECTION, GMIMSName.GMIMS_NAME_PATTERN, fname_on_disk)
+            obs_id=obs_id, collection=COLLECTION,
+            collection_pattern=GMIMSName.GMIMS_NAME_PATTERN,
+            fname_on_disk=fname_on_disk)
 
     # def get_file_uri(self):
     #     return 'ad:DRAO/drao_60rad.mod.fits'
@@ -129,7 +132,6 @@ def accumulate_bp(bp, uri):
     level."""
     logging.debug('Begin accumulate_bp.')
 
-    bp.set('Observation.observationID', 'test_obs_id')
     bp.set('Observation.proposal.id', 'GMIMS')
     bp.set('Observation.proposal.pi', 'Maik Wolleben')
     bp.set('Observation.proposal.project',
@@ -149,10 +151,21 @@ def accumulate_bp(bp, uri):
 
     bp.set('Plane.dataProductType', 'cube')
     bp.set('Plane.calibrationLevel', '4')
+    # Alex Hill 2018-11-20 - data will be public after the paper is
+    # published
     bp.set('Plane.metaRelease', '2030-01-01')
     bp.set('Plane.dataRelease', '2030-01-01')
 
     bp.configure_position_axes((1, 2))
+    bp.clear('Chunk.position.axis.function.cd11')
+    bp.clear('Chunk.position.axis.function.cd22')
+    bp.add_fits_attribute('Chunk.position.axis.function.cd11', 'CDELT1')
+    bp.set('Chunk.position.axis.function.cd12', 0.0)
+    bp.set('Chunk.position.axis.function.cd21', 0.0)
+    bp.add_fits_attribute('Chunk.position.axis.function.cd22', 'CDELT2')
+
+    # see what I can do with a Faraday depth axis .... lol
+    bp.configure_observable_axis(3)
 
     logging.debug('Done accumulate_bp.')
 
@@ -208,6 +221,7 @@ def update(observation, **kwargs):
         # plane.position.bounds = shape.Box(center, width, height)
         # logging.error('set bounds')
         _update_time(plane)
+        # build_a_plane_position(plane)
 
     logging.debug('Done update.')
     return True
@@ -243,11 +257,36 @@ def _update_time(plane):
     logging.debug('End _update_time')
 
 
-def _update_typed_set(typed_set, new_set):
-    # remove the previous values
-    while len(typed_set) > 0:
-        typed_set.pop()
-    typed_set.update(new_set)
+def build_a_plane_position(plane):
+    from astropy.io import fits
+    from astropy.wcs import wcs
+    from caom2 import SegmentType, Point, Vertex, Position, shape
+    logging.error('do i get here?')
+    try:
+        z = fits.open('/usr/src/app/draogmims2caom2/draogmims2caom2/tests'
+                      '/data/gmims_HBN_Fan.fits')
+        w = wcs.WCS(z[0].header)
+        points = []
+        vertices = []
+        segment_type = SegmentType['MOVE']
+
+        for x, y in ([0, 0], [1, 0], [1, 1], [0, 1]):
+            v = w.all_pix2world(x * z[0].header['naxis1'],
+                                y * z[0].header['naxis2'], 1, 1)
+            points.append(Point(float(v[0]), float(v[1])))
+            vertices.append(Vertex(float(v[0]), float(v[1]), segment_type))
+            segment_type = SegmentType['LINE']
+        vertices.append(Vertex(points[0].cval1,
+                               points[0].cval2,
+                               SegmentType['CLOSE']))
+
+        polygon = shape.Polygon(points=points,
+                                samples=shape.MultiPolygon(vertices))
+        position = Position(time_dependent=False,
+                            bounds=polygon)
+        plane.position = position
+    except Exception as e:
+        logging.error('wtf {}'.format(e))
 
 
 def _build_blueprints(uri):
